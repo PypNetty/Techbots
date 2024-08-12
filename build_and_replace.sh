@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Définissez le nom et le tag de votre image
-IMAGE_NAME="nom_de_votre_image"
+IMAGE_NAME="gilfoyle_bot"
 TAG="latest"
 
 # Construisez la nouvelle image
