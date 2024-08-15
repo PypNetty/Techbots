@@ -1,24 +1,102 @@
 #!/bin/bash
 
-# Définissez le nom et le tag de votre image
-IMAGE_NAME="gilfoyle_bot"
-TAG="latest"
+set -e
 
-# Construisez la nouvelle image
-docker build -t ${IMAGE_NAME}:${TAG} .
+# Fonction pour forcer la suppression d'une image Docker
+force_delete_image() {
+    local IMAGE_ID=$1
+    local CONTAINERS=$(docker ps -a --filter "ancestor=$IMAGE_ID" -q)
 
-# Vérifiez si la construction a réussi
-if [ $? -eq 0 ]; then
-    echo "Nouvelle image construite avec succès"
-    
-    # Supprimez les anciennes images non taguées (dangling images)
+    if [ -n "$CONTAINERS" ]; then
+        echo "Arrêt et suppression des conteneurs utilisant l'image $IMAGE_ID..."
+        docker stop $CONTAINERS
+        docker rm $CONTAINERS
+    fi
+
+    echo "Suppression de l'image $IMAGE_ID..."
+    docker rmi $IMAGE_ID
+}
+
+# Fonction pour construire et nettoyer une image Docker
+build_and_clean_image() {
+    local SERVICE_NAME=$1
+    local CONTEXT=$2
+    local DOCKERFILE=$3
+
+    echo "Vérification de l'image pour le service '${SERVICE_NAME}'..."
+    local NEW_HASH=$(md5sum ${DOCKERFILE} | awk '{ print $1 }')
+    local EXISTING_HASH=$(docker-compose images -q ${SERVICE_NAME} | xargs -I {} docker inspect {} --format='{{index .Config.Labels "dockerfile_hash"}}' 2>/dev/null || echo "")
+
+    if [ "$NEW_HASH" != "$EXISTING_HASH" ]; then
+        echo "Modifications détectées. Reconstruction de l'image pour '${SERVICE_NAME}'..."
+        docker-compose build --build-arg DOCKERFILE_HASH=$NEW_HASH ${SERVICE_NAME}
+        echo "Nouvelle image pour '${SERVICE_NAME}' construite avec succès"
+        
+        # Nettoyer les anciennes images non taguées
+        docker image prune -f
+    else
+        echo "Aucune modification détectée pour '${SERVICE_NAME}'. Utilisation de l'image existante."
+    fi
+}
+
+# Fonction pour nettoyer les ressources Docker inutilisées
+cleanup() {
+    echo "Nettoyage des ressources Docker inutilisées..."
+    docker container prune -f
     docker image prune -f
+    docker network prune -f
+    docker volume prune -f
+}
 
-    echo "Les anciennes images non utilisées ont été supprimées"
-else
-    echo "Échec de la construction de l'image"
-    exit 1
-fi
+# Fonction pour vérifier et démarrer les conteneurs
+start_containers() {
+    echo "Démarrage des conteneurs..."
+    docker-compose up -d
+    echo "Conteneurs démarrés."
+}
 
-# Optionnel : Affichez les images actuelles pour vérification
-docker images | grep ${IMAGE_NAME}
+# Fonction pour vérifier les logs des conteneurs
+check_logs() {
+    echo "Vérification des logs des conteneurs..."
+    docker-compose logs --tail=20
+}
+
+# Fonction pour afficher l'utilisation du système Docker
+show_docker_usage() {
+    echo "Utilisation du système Docker :"
+    docker system df
+}
+
+# Processus principal
+main() {
+    echo "Début du processus de déploiement et maintenance..."
+
+    # Lire les noms des services depuis docker-compose.yml
+    local SERVICES=$(docker-compose config --services)
+
+    # Construire ou mettre à jour les images pour chaque service
+    for SERVICE in $SERVICES; do
+        build_and_clean_image "$SERVICE" "." "Dockerfile"
+    done
+
+    # Nettoyage
+    cleanup
+
+    # Démarrer les conteneurs
+    start_containers
+
+    # Vérifier les logs
+    check_logs
+
+    # Afficher l'utilisation du système Docker
+    show_docker_usage
+
+    echo "Processus terminé. Les services sont déployés et en cours d'exécution."
+}
+
+# Exécution du processus principal
+main
+
+# Afficher les conteneurs en cours d'exécution
+echo "Conteneurs en cours d'exécution :"
+docker ps
