@@ -25,7 +25,7 @@ Python, Bash, Docker, docker-compose
 
 ## Utilisation
 
-- `./deploy.sh` pour déployer/reconstruire
+- `./build_and_replace.sh` pour déployer/reconstruire
 - `docker ps` pour vérifier l'exécution
 - Voir les logs avec `docker-compose logs`
 
